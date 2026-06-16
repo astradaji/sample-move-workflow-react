@@ -17,7 +17,7 @@ A React-based prototype for the National Van Lines quote workflow.
 ## Local Development
 
 ```bash
-cd C:\Users\abhis\Downloads\wordpress+plugin\sample-move-workflow-react
+
 
 npm install
 npm start
