@@ -377,9 +377,29 @@ function Hero({ selectedMove }) {
 }
 
 function Progress({ steps, step }) {
+  const progress = steps.length > 1 ? (step / (steps.length - 1)) * 100 : 0;
+
   return (
     <nav className="progress-bar" aria-label="Workflow progress">
       <div className="progress-inner">
+        <div className="progress-track" aria-hidden="true">
+          <span className="progress-fill" style={{ width: `${progress}%` }} />
+          <span className="progress-truck" style={{ left: `${progress}%` }}>
+            <svg viewBox="0 0 72 38" aria-hidden="true" focusable="false">
+              <path
+                className="truck-body"
+                d="M4 9c0-2.2 1.8-4 4-4h35c2.2 0 4 1.8 4 4v19H4V9Z"
+              />
+              <path
+                className="truck-cab"
+                d="M47 14h11.2c1.1 0 2.1.5 2.8 1.4L68 24v4H47V14Z"
+              />
+              <path className="truck-window" d="M53 17h5.2l4 5H53v-5Z" />
+              <circle className="truck-wheel" cx="18" cy="30" r="5" />
+              <circle className="truck-wheel" cx="55" cy="30" r="5" />
+            </svg>
+          </span>
+        </div>
         {steps.map((label, index) => (
           <div className="progress-item" key={label}>
             <span className={index <= step ? "dot active" : "dot"} />

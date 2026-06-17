@@ -73,6 +73,7 @@ input {
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
   gap: 10px;
+  position: relative;
 }
 
 .progress-item {
@@ -83,17 +84,68 @@ input {
   font-size: 12px;
   font-weight: 700;
   text-align: center;
+  z-index: 2;
+}
+
+.progress-track {
+  position: absolute;
+  top: 20px;
+  left: calc(10% - 1px);
+  right: calc(10% - 1px);
+  height: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  z-index: 4;
+}
+
+.progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 999px;
+  background: #ef4044;
+  transition: width 0.55s ease;
+  z-index: 1;
+}
+
+.progress-truck {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 30px;
+  background: transparent;
+  transition: left 0.55s ease;
+  animation: none;
+  z-index: 10;
+}
+
+.progress-truck svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.25));
+}
+
+.truck-body,
+.truck-cab {
+  fill: #ffffff;
+}
+
+.truck-window {
+  fill: #7da7d9;
+}
+
+.truck-wheel {
+  fill: #003976;
+  stroke: #ffffff;
+  stroke-width: 1.5;
 }
 
 .progress-item:not(:last-child)::after {
   content: "";
-  position: absolute;
-  top: 9px;
-  left: 50%;
-  width: calc(100% + 10px);
-  height: 2px;
-  background: rgba(255, 255, 255, 0.35);
-  z-index: 0;
+  display: none;
 }
 
 .dot {
@@ -108,6 +160,16 @@ input {
 .dot.active {
   border-color: #ef4044;
   background: #ef4044;
+}
+
+@keyframes truck-bounce {
+  0%,
+  100% {
+    margin-top: 0;
+  }
+  50% {
+    margin-top: -3px;
+  }
 }
 
 .workflow-shell {
