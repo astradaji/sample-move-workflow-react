@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import Progress from "./progess";
+import { validateUsZip } from "./zipValidation";
 import "./styles.css";
 
 const moveTypes = {
@@ -161,8 +163,119 @@ const moveTypes = {
   },
 };
 
+const residenceTypes = {
+  house: {
+    label: "a house",
+    moveType: "household_movers",
+    icon: "home-card",
+  },
+  condo: {
+    label: "a condo",
+    moveType: "condo_moves",
+    icon: "condo-card",
+  },
+  apartment: {
+    label: "an apartment",
+    moveType: "apartment_moves",
+    icon: "apartment-card",
+  },
+  other: {
+    label: "none of these",
+    moveType: "specialty_movers",
+    icon: "other-card",
+  },
+};
+
+const moveSizes = {
+  few_items: {
+    label: "a few items",
+    blocks: 1,
+  },
+  two_bedrooms: {
+    label: "2 bedrooms",
+    blocks: 2,
+  },
+  three_bedrooms: {
+    label: "3 bedrooms",
+    blocks: 3,
+  },
+  four_plus_bedrooms: {
+    label: "4+ bedrooms",
+    blocks: 4,
+  },
+};
+
+const moveTypesThatNeedSize = [
+  "apartment_moves",
+  "condo_moves",
+  "senior_moves",
+  "local_moves",
+  "household_movers",
+  "cross_country",
+  "coast_to_coast",
+  "cross_state",
+  "long_haul",
+  "interstate_moving",
+  "international",
+  "nationwide_moving",
+  "state_to_state",
+];
+
+const moveTypesWithEstimate = [
+  "apartment_moves",
+  "condo_moves",
+  "household_movers",
+];
+
+const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function toDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function fromDateValue(value) {
+  if (!value) {
+    return new Date();
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getCalendarDays(monthDate) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPreviousMonth = new Date(year, month, 0).getDate();
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const dayNumber = index - firstDay.getDay() + 1;
+    const displayDay =
+      dayNumber < 1
+        ? daysInPreviousMonth + dayNumber
+        : dayNumber > daysInMonth
+          ? dayNumber - daysInMonth
+          : dayNumber;
+    const date = new Date(year, month, dayNumber);
+
+    return {
+      displayDay,
+      inMonth: dayNumber >= 1 && dayNumber <= daysInMonth,
+      value: toDateValue(date),
+    };
+  });
+}
+
 const initialForm = {
   move_type: "",
+  residence_type: "",
+  move_size: "",
+  move_date: toDateValue(new Date()),
+  needs_specific_move_date: false,
   first_name: "",
   last_name: "",
   email: "",
@@ -171,6 +284,7 @@ const initialForm = {
   customer_city: "",
   customer_state: "",
   customer_zip: "",
+  moved_with_us_before: false,
   source_city: "",
   source_state: "",
   source_zip: "",
@@ -184,6 +298,8 @@ const initialForm = {
   boxes: false,
   storage: false,
   fragile_items: false,
+  referral_coupon_code: "",
+  move_notes: "",
 };
 
 function getInitialMoveType() {
@@ -194,16 +310,17 @@ function getInitialMoveType() {
 
 function App() {
   const urlMoveType = getInitialMoveType();
-  const initialCategory = urlMoveType ? moveTypes[urlMoveType].category : "Residential";
   const [step, setStep] = useState(0);
-  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [estimateState, setEstimateState] = useState({
     loading: false,
     submitted: false,
     completed: false,
     amount: null,
     quoteId: null,
+    estimateAvailable: null,
   });
+  const [validationErrors, setValidationErrors] = useState({});
+  const [zipStatus, setZipStatus] = useState({});
   const [form, setForm] = useState({
     ...initialForm,
     move_type: urlMoveType,
@@ -212,6 +329,8 @@ function App() {
 
   const selectedMove = moveTypes[form.move_type];
   const isInternationalMove = form.move_type === "international";
+  const needsMoveSize = moveTypesThatNeedSize.includes(form.move_type);
+  const canCalculateEstimate = moveTypesWithEstimate.includes(form.move_type);
   const steps = ["Move Type", "Customer Info", "Move Details", "Services", "Preview"];
 
   const payload = useMemo(
@@ -228,12 +347,16 @@ function App() {
             destination_city: form.destination_city,
             destination_state: form.destination_state,
             destination_zip_code: form.destination_zip,
+            move_date: form.move_date,
+            needs_specific_move_date: form.needs_specific_move_date,
           }
         : {
             move_type: form.move_type,
             international: false,
             moving_from_zip: form.source_zip,
             moving_to_zip: form.destination_zip,
+            move_date: form.move_date,
+            needs_specific_move_date: form.needs_specific_move_date,
           };
 
       return {
@@ -242,13 +365,23 @@ function App() {
           last_name: form.last_name,
           email: form.email,
           phone: form.phone,
+          address: form.address,
+          city: form.customer_city,
+          state: form.customer_state,
+          moved_with_us_before: form.moved_with_us_before,
         },
         move_details: moveDetails,
+        move_profile: {
+          residence_type: form.residence_type,
+          move_size: form.move_size,
+        },
         additional_services: {
           packing_service: form.packing_service,
           boxes: form.boxes,
           storage: form.storage,
           fragile_items: form.fragile_items,
+          referral_coupon_code: form.referral_coupon_code,
+          move_notes: form.move_notes,
         },
       };
     },
@@ -259,11 +392,100 @@ function App() {
     setForm((current) => ({
       ...current,
       [name]: value,
-      ...(name === "move_type" ? { international: value === "international" } : {}),
+      ...(name === "move_type"
+        ? {
+            international: value === "international",
+            move_size: moveTypesThatNeedSize.includes(value) ? current.move_size : "",
+          }
+        : {}),
+    }));
+    setValidationErrors((current) => ({ ...current, [name]: "" }));
+    setZipStatus((current) => ({ ...current, [name]: "" }));
+  }
+
+  function updateResidenceType(key) {
+    setForm((current) => ({
+      ...current,
+      residence_type: key,
+      move_size: current.residence_type === key ? current.move_size : "",
     }));
   }
 
-  function next() {
+  async function validateZipCode(name, label) {
+    const value = form[name].trim();
+
+    if (!value) {
+      return "Please provide a ZIP code.";
+    }
+
+    if (!/^\d{5}$/.test(value)) {
+      return "ZIP code must be 5 digits.";
+    }
+
+    setZipStatus((current) => ({ ...current, [name]: "Checking ZIP..." }));
+
+    try {
+      const result = await validateUsZip(value);
+
+      if (!result.valid) {
+        return result.message || "Please enter a valid U.S. ZIP code.";
+      }
+
+      if (result.state === "AK") {
+        return "Sorry, we do not have any agents in Alaska.";
+      }
+
+      if (result.state === "HI") {
+        return "Sorry, we do not have any agents in Hawaii.";
+      }
+
+      setZipStatus((current) => ({ ...current, [name]: `${label} ZIP verified.` }));
+      return "";
+    } catch (error) {
+      return "Could not validate this ZIP right now.";
+    }
+  }
+
+  async function validateCurrentStep() {
+    if (step === 0) {
+      return Boolean(form.move_type && (!needsMoveSize || form.move_size));
+    }
+
+    if (step !== 2 || isInternationalMove) {
+      return true;
+    }
+
+    // ZIP validation is temporarily disabled.
+    // Re-enable this block when the ZIP validation API/key is ready.
+    return true;
+
+    /*
+    const errors = {
+      source_zip: await validateZipCode("source_zip", "Origin"),
+      destination_zip: await validateZipCode("destination_zip", "Destination"),
+    };
+
+    if (
+      !errors.source_zip &&
+      !errors.destination_zip &&
+      form.source_zip.slice(0, 2) === form.destination_zip.slice(0, 2)
+    ) {
+      errors.destination_zip =
+        "This looks like a local move. National Van Lines is focused on long distance moves.";
+    }
+
+    setValidationErrors(errors);
+    return !Object.values(errors).some(Boolean);
+    */
+  }
+
+  async function next() {
+    const isValid = await validateCurrentStep();
+
+    if (!isValid) {
+      return;
+    }
+
     setStep((current) => Math.min(current + 1, steps.length - 1));
   }
 
@@ -278,9 +500,22 @@ function App() {
       completed: false,
       amount: null,
       quoteId: null,
+      estimateAvailable: canCalculateEstimate,
     });
 
     window.setTimeout(() => {
+      if (!canCalculateEstimate) {
+        setEstimateState({
+          loading: false,
+          submitted: false,
+          completed: true,
+          amount: null,
+          quoteId: null,
+          estimateAvailable: false,
+        });
+        return;
+      }
+
       const baseEstimate = isInternationalMove ? 6200 : form.move_type?.includes("commercial") ? 4800 : 3600;
       const servicesTotal =
         (form.packing_service ? 650 : 0) +
@@ -294,6 +529,7 @@ function App() {
         completed: false,
         amount: baseEstimate + servicesTotal,
         quoteId: `NVL-${Date.now().toString().slice(-6)}`,
+        estimateAvailable: true,
       });
     }, 1400);
   }
@@ -323,12 +559,20 @@ function App() {
           <MoveTypeStep
             form={form}
             update={update}
-            activeCategory={activeCategory}
-            setActiveCategory={setActiveCategory}
+            updateResidenceType={updateResidenceType}
+            needsMoveSize={needsMoveSize}
           />
         )}
         {step === 1 && <CustomerStep form={form} update={update} />}
-        {step === 2 && <MoveDetailsStep form={form} update={update} isInternationalMove={isInternationalMove} />}
+        {step === 2 && (
+          <MoveDetailsStep
+            form={form}
+            update={update}
+            isInternationalMove={isInternationalMove}
+            errors={validationErrors}
+            zipStatus={zipStatus}
+          />
+        )}
         {step === 3 && <ServicesStep form={form} update={update} />}
         {step === 4 && (
           <PreviewStep payload={payload} selectedMove={selectedMove} estimateState={estimateState} />
@@ -340,7 +584,12 @@ function App() {
             </button>
           )}
           {step < steps.length - 1 ? (
-            <button type="button" className="btn btn-primary" onClick={next}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={next}
+              disabled={step === 0 && (!form.move_type || (needsMoveSize && !form.move_size))}
+            >
               Next: {steps[step + 1]}
             </button>
           ) : (
@@ -354,7 +603,9 @@ function App() {
                 ? "Calculating..."
                 : estimateState.submitted
                   ? "Submit Quote Request"
-                  : "Submit Workflow"}
+                  : canCalculateEstimate
+                    ? "Submit Workflow"
+                    : "Submit Request"}
             </button>
           )}
         </div>
@@ -376,42 +627,181 @@ function Hero({ selectedMove }) {
   );
 }
 
-function Progress({ steps, step }) {
-  const progress = steps.length > 1 ? (step / (steps.length - 1)) * 100 : 0;
-
+function MoveTypeStep({ form, update, updateResidenceType, needsMoveSize }) {
   return (
-    <nav className="progress-bar" aria-label="Workflow progress">
-      <div className="progress-inner">
-        <div className="progress-track" aria-hidden="true">
-          <span className="progress-fill" style={{ width: `${progress}%` }} />
-          <span className="progress-truck" style={{ left: `${progress}%` }}>
-            <svg viewBox="0 0 72 38" aria-hidden="true" focusable="false">
-              <path
-                className="truck-body"
-                d="M4 9c0-2.2 1.8-4 4-4h35c2.2 0 4 1.8 4 4v19H4V9Z"
-              />
-              <path
-                className="truck-cab"
-                d="M47 14h11.2c1.1 0 2.1.5 2.8 1.4L68 24v4H47V14Z"
-              />
-              <path className="truck-window" d="M53 17h5.2l4 5H53v-5Z" />
-              <circle className="truck-wheel" cx="18" cy="30" r="5" />
-              <circle className="truck-wheel" cx="55" cy="30" r="5" />
-            </svg>
-          </span>
-        </div>
-        {steps.map((label, index) => (
-          <div className="progress-item" key={label}>
-            <span className={index <= step ? "dot active" : "dot"} />
-            <span className="progress-label">{label}</span>
-          </div>
+    <div className="move-profile-step">
+      <MoveSelectionBlock form={form} update={update} />
+
+      {/*
+      <section className="profile-section">
+        <h2>I live in ...</h2>
+        <div className="profile-grid">
+          {Object.entries(residenceTypes).map(([key, item]) => (
+          <button
+            type="button"
+              className={form.residence_type === key ? "profile-choice selected" : "profile-choice"}
+              key={key}
+              onClick={() => updateResidenceType(key)}
+          >
+              <span className={`residence-illustration ${item.icon}`} />
+              <strong>{item.label}</strong>
+          </button>
         ))}
       </div>
-    </nav>
+      </section>
+
+      {form.residence_type && (
+        <section className="profile-section profile-section-next">
+          <h2>I have ...</h2>
+          <div className="profile-grid">
+            {Object.entries(moveSizes).map(([key, item]) => (
+            <button
+              type="button"
+                className={form.move_size === key ? "profile-choice selected" : "profile-choice"}
+              key={key}
+                onClick={() => update("move_size", key)}
+            >
+                <span className={`bedroom-illustration size-${item.blocks}`}>
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <span className={index < item.blocks ? "filled" : ""} key={index} />
+                  ))}
+                </span>
+              <strong>{item.label}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
+      */}
+
+      {form.move_type && needsMoveSize && (
+        <section className="profile-section profile-section-next">
+          <h2>I have ...</h2>
+          <div className="profile-grid">
+            {Object.entries(moveSizes).map(([key, item]) => (
+              <button
+                type="button"
+                className={form.move_size === key ? "profile-choice selected" : "profile-choice"}
+                key={key}
+                onClick={() => update("move_size", key)}
+              >
+                <span className={`bedroom-illustration size-${item.blocks}`}>
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <span className={index < item.blocks ? "filled" : ""} key={index} />
+                  ))}
+                </span>
+                <strong>{item.label}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {form.move_type && (!needsMoveSize || form.move_size) && <MoveDateSection form={form} update={update} />}
+
+    </div>
   );
 }
 
-function MoveTypeStep({ form, update, activeCategory, setActiveCategory }) {
+function MoveBasics({ form, update }) {
+  const [calendarMonth, setCalendarMonth] = useState(fromDateValue(form.move_date));
+  const days = getCalendarDays(calendarMonth);
+  const monthTitle = calendarMonth.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  function changeMonth(offset) {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  }
+
+  function selectDate(value) {
+    update("move_date", value);
+  }
+
+  return (
+    <section className="move-basics profile-section-next">
+      <div className="move-basics-grid">
+        <label className="compact-input">
+          <span>I'm moving from:</span>
+          <input
+            type="text"
+            value={form.source_zip}
+            onChange={(event) => update("source_zip", event.target.value)}
+            placeholder="Enter a ZIP code"
+            inputMode="numeric"
+          />
+        </label>
+        <label className="compact-input">
+          <span>I'm moving to:</span>
+          <input
+            type="text"
+            value={form.destination_zip}
+            onChange={(event) => update("destination_zip", event.target.value)}
+            placeholder="Enter a ZIP code"
+            inputMode="numeric"
+          />
+        </label>
+      </div>
+
+      <label className="inline-check">
+        <input
+          type="checkbox"
+          checked={form.international}
+          onChange={(event) => update("international", event.target.checked)}
+        />
+        <span>I am moving internationally</span>
+      </label>
+
+      <div className="calendar-block">
+        <h3>When are you moving?</h3>
+        <div className="calendar">
+          <div className="calendar-head">
+            <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month">
+              ‹
+            </button>
+            <strong>{monthTitle}</strong>
+            <button type="button" onClick={() => changeMonth(1)} aria-label="Next month">
+              ›
+            </button>
+          </div>
+          <div className="calendar-weekdays">
+            {weekdayLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+          <div className="calendar-days">
+            {days.map((day) => (
+              <button
+                type="button"
+                className={[
+                  day.inMonth ? "" : "muted",
+                  form.move_date === day.value ? "selected" : "",
+                ].join(" ").trim()}
+                key={day.value}
+                onClick={() => selectDate(day.value)}
+              >
+                {day.displayDay}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <label className="inline-check">
+        <input
+          type="checkbox"
+          checked={form.needs_specific_move_date}
+          onChange={(event) => update("needs_specific_move_date", event.target.checked)}
+        />
+        <span>I need a specific move date</span>
+      </label>
+    </section>
+  );
+}
+
+function MoveSelectionBlock({ form, update }) {
+  const initialCategory = form.move_type ? moveTypes[form.move_type].category : "Residential";
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const groupedMoveTypes = Object.entries(moveTypes).reduce((groups, [key, item]) => {
     const category = item.category || "Other";
     return {
@@ -424,7 +814,7 @@ function MoveTypeStep({ form, update, activeCategory, setActiveCategory }) {
   const selectedMove = moveTypes[form.move_type];
 
   return (
-    <>
+    <section className="move-selection-block profile-section-next">
       <SectionTitle title="Choose your move" subtitle="Start with a category, then select the specific service." />
       <div className="category-tabs" aria-label="Move categories">
         {categories.map((category) => (
@@ -461,7 +851,7 @@ function MoveTypeStep({ form, update, activeCategory, setActiveCategory }) {
           ))}
         </div>
       </section>
-    </>
+    </section>
   );
 }
 
@@ -474,12 +864,23 @@ function CustomerStep({ form, update }) {
         <Input label="Last Name" name="last_name" value={form.last_name} update={update} />
         <Input label="Email" name="email" value={form.email} update={update} type="email" />
         <Input label="Phone" name="phone" value={form.phone} update={update} />
+        <Input label="Address" name="address" value={form.address} update={update} wide />
+        <Input label="City" name="customer_city" value={form.customer_city} update={update} />
+        <Input label="State" name="customer_state" value={form.customer_state} update={update} />
+        <label className="inline-check wide">
+          <input
+            type="checkbox"
+            checked={form.moved_with_us_before}
+            onChange={(event) => update("moved_with_us_before", event.target.checked)}
+          />
+          <span>I have moved with you in the past</span>
+        </label>
       </div>
     </>
   );
 }
 
-function MoveDetailsStep({ form, update, isInternationalMove }) {
+function MoveDetailsStep({ form, update, isInternationalMove, errors, zipStatus }) {
   return (
     <>
       <SectionTitle
@@ -514,11 +915,85 @@ function MoveDetailsStep({ form, update, isInternationalMove }) {
         </div>
       ) : (
         <div className="form-grid">
-          <Input label="Moving From ZIP" name="source_zip" value={form.source_zip} update={update} />
-          <Input label="Moving To ZIP" name="destination_zip" value={form.destination_zip} update={update} />
+          <Input
+            label="Moving From ZIP"
+            name="source_zip"
+            value={form.source_zip}
+            update={update}
+            error={errors.source_zip}
+            help={zipStatus.source_zip}
+          />
+          <Input
+            label="Moving To ZIP"
+            name="destination_zip"
+            value={form.destination_zip}
+            update={update}
+            error={errors.destination_zip}
+            help={zipStatus.destination_zip}
+          />
         </div>
       )}
     </>
+  );
+}
+
+function MoveDateSection({ form, update }) {
+  const [calendarMonth, setCalendarMonth] = useState(fromDateValue(form.move_date));
+  const days = getCalendarDays(calendarMonth);
+  const monthTitle = calendarMonth.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  function changeMonth(offset) {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  }
+
+  return (
+    <section className="move-date-section">
+      <div className="calendar-block">
+        <h3>When are you moving?</h3>
+        <div className="calendar">
+          <div className="calendar-head">
+            <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month">
+              {"<"}
+            </button>
+            <strong>{monthTitle}</strong>
+            <button type="button" onClick={() => changeMonth(1)} aria-label="Next month">
+              {">"}
+            </button>
+          </div>
+          <div className="calendar-weekdays">
+            {weekdayLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+          <div className="calendar-days">
+            {days.map((day) => (
+              <button
+                type="button"
+                className={[day.inMonth ? "" : "muted", form.move_date === day.value ? "selected" : ""]
+                  .join(" ")
+                  .trim()}
+                key={day.value}
+                onClick={() => update("move_date", day.value)}
+              >
+                {day.displayDay}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <label className="inline-check">
+        <input
+          type="checkbox"
+          checked={form.needs_specific_move_date}
+          onChange={(event) => update("needs_specific_move_date", event.target.checked)}
+        />
+        <span>I need a specific move date</span>
+      </label>
+    </section>
   );
 }
 
@@ -540,6 +1015,23 @@ function ServicesStep({ form, update }) {
             <span>{label}</span>
           </label>
         ))}
+      </div>
+      <div className="services-extra">
+        <Input
+          label="Referral / Coupon Code"
+          name="referral_coupon_code"
+          value={form.referral_coupon_code}
+          update={update}
+          wide
+        />
+        <label className="input-wrap wide">
+          <span>Tell us about your move</span>
+          <textarea
+            name="move_notes"
+            value={form.move_notes}
+            onChange={(event) => update("move_notes", event.target.value)}
+          />
+        </label>
       </div>
     </>
   );
@@ -564,7 +1056,7 @@ function PreviewStep({ payload, selectedMove, estimateState }) {
           </div>
         </div>
       )}
-      {estimateState.submitted && (
+      {estimateState.submitted && estimateState.estimateAvailable !== false && (
         <div className="estimate-panel success">
           <div>
             <span className="estimate-label">Dummy Estimate</span>
@@ -578,11 +1070,14 @@ function PreviewStep({ payload, selectedMove, estimateState }) {
       )}
       {estimateState.completed && (
         <div className="thank-you-panel">
-          <span>Thank you</span>
-          <h3>Your quote request has been received.</h3>
+          <span>{estimateState.estimateAvailable === false ? "Help is on the way" : "Thank you"}</span>
+          <h3>
+            {estimateState.estimateAvailable === false
+              ? "Help is on the way!"
+              : "Your quote request has been received."}
+          </h3>
           <p>
-            A National Van Lines move specialist will review the details and follow up with the
-            customer.
+            A National Van Lines move specialist will review the details and follow up with the customer.
           </p>
         </div>
       )}
@@ -613,11 +1108,13 @@ function SectionTitle({ title, subtitle }) {
   );
 }
 
-function Input({ label, name, value, update, type = "text", wide = false }) {
+function Input({ label, name, value, update, type = "text", wide = false, error = "", help = "" }) {
   return (
     <label className={wide ? "input-wrap wide" : "input-wrap"}>
       <span>{label}</span>
       <input type={type} name={name} value={value} onChange={(event) => update(name, event.target.value)} />
+      {error ? <small className="field-error">{error}</small> : null}
+      {!error && help ? <small className="field-help">{help}</small> : null}
     </label>
   );
 }
